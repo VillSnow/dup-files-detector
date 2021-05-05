@@ -1,0 +1,9 @@
+[package]
+name = "dup-files-detector"
+version = "0.1.0"
+authors = ["VillSnow <vill.snow@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33"
+sha2 = "0.9"
