@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 pub enum Error {
     IOError(std::io::Error),
     EncodeError,
+    Ignore,
 }
 
 impl From<std::io::Error> for Error {
@@ -21,11 +22,13 @@ impl From<std::io::Error> for Error {
 
 pub fn scan(
     path: impl AsRef<Path>,
+    ignore_pred: impl FnMut(&Path) -> bool,
     callback: impl FnMut(&Path, &[u8]),
     error_callback: impl FnMut(&Path, &Error),
 ) -> Result<Vec<u8>, Error> {
     scan_impl(
         path.as_ref(),
+        &RefCell::new(ignore_pred),
         &RefCell::new(callback),
         &RefCell::new(error_callback),
     )
@@ -33,11 +36,16 @@ pub fn scan(
 
 pub fn scan_impl(
     node: &Path,
+    ignore_pred: &RefCell<impl FnMut(&Path) -> bool>,
     callback: &RefCell<impl FnMut(&Path, &[u8])>,
     error_callback: &RefCell<impl FnMut(&Path, &Error)>,
 ) -> Result<Vec<u8>, Error> {
     eprintln!("{}", node.display());
     let node = node.as_ref();
+
+    if ignore_pred.borrow_mut()(node) {
+        return Err(Error::Ignore);
+    }
 
     let md = fs::symlink_metadata(node)?;
     let fty = md.file_type();
@@ -45,7 +53,7 @@ pub fn scan_impl(
     let result = if fty.is_file() {
         file_hash(node)
     } else if fty.is_dir() {
-        scan_dir(node, callback, error_callback)
+        scan_dir(node, ignore_pred, callback, error_callback)
     } else if fty.is_symlink() {
         symlink_hash(node)
     } else {
@@ -66,6 +74,7 @@ pub fn scan_impl(
 
 fn scan_dir(
     path: &Path,
+    ignore_pred: &RefCell<impl FnMut(&Path) -> bool>,
     callback: &RefCell<impl FnMut(&Path, &[u8])>,
     error_callback: &RefCell<impl FnMut(&Path, &Error)>,
 ) -> Result<Vec<u8>, Error> {
@@ -74,7 +83,12 @@ fn scan_dir(
     for entry in iter {
         let entry = entry?;
         let path = entry.path();
-        let hash = scan_impl(&path, callback, error_callback)?;
+
+        if ignore_pred.borrow_mut()(&path) {
+            continue;
+        }
+
+        let hash = scan_impl(&path, ignore_pred, callback, error_callback)?;
         children.push((path.file_name().unwrap().to_os_string(), hash));
     }
 

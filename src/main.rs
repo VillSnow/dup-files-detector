@@ -19,15 +19,49 @@ fn main() {
                 .help("The root directory of scanning")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("ignore")
+                .value_name("IGNORE-GLOB")
+                .long("ignore")
+                .help("The globs to specify ignoring files or directories")
+                .takes_value(true)
+                .multiple(true)
+                .validator(|x| {
+                    glob::Pattern::new(&x)
+                        .map(|_| ())
+                        .map_err(|e| format!("{}", e))
+                }),
+        )
         .get_matches();
 
     let root = m.value_of("root").unwrap();
+
+    let ignore = m.values_of("ignore");
+    let ignore_globs = ignore
+        .map(|xs| {
+            xs.into_iter()
+                .map(|x| glob::Pattern::new(x).unwrap())
+                .collect()
+        })
+        .unwrap_or(Vec::new());
 
     let start_time = std::time::SystemTime::now();
 
     let mut collection = HashMap::<_, Vec<_>>::new();
     let _ = main_logic::scan(
         root,
+        |path| {
+            let is_dir = path.is_dir();
+            if let Some(path) = path.to_str() {
+                let mut path = path.to_string();
+                if is_dir {
+                    path.push(std::path::MAIN_SEPARATOR);
+                }
+                ignore_globs.iter().any(|g| g.matches(&path))
+            } else {
+                false
+            }
+        },
         |path, hash| {
             collection
                 .entry(hash.to_vec())
